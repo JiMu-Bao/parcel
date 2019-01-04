@@ -35,7 +35,8 @@ export default new Bundler({
           let isIsolated = dep.isEntry || ISOLATED_ENVS.has(dep.env.context);
           let bundleGroup: BundleGroup = {
             dependency: dep,
-            target: dep.target || (context && context.bundleGroup.target)
+            target: dep.target || (context && context.bundleGroup.target),
+            entryAssetId: assetGraph.getDependencyResolution(dep).asset.id
           };
 
           bundleGraph.addBundleGroup(

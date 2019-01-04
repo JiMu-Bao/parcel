@@ -8,6 +8,9 @@
     ]
   },
   "namers": ["@parcel/namer-default"],
+  "loaders": {
+    "*.js": "@parcel/loader-js"
+  },
   "packagers": {
     "*.js": "@parcel/packager-js"
   },
