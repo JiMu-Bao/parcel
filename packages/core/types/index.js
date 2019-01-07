@@ -278,7 +278,8 @@ export interface AssetGraph extends Graph {
 
 export type BundleGroup = {
   dependency: Dependency,
-  target: ?Target
+  target: ?Target,
+  entryAssetId: string
 };
 
 export type Bundle = {
