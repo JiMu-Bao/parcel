@@ -8,8 +8,9 @@ const {
   assertBundleTree,
   deferred,
   ncp
-} = require('./utils');
+} = require('@parcel/test-utils');
 const {mkdirp} = require('@parcel/fs');
+const {symlinkPrivilegeWarning} = require('@parcel/test-utils');
 const {symlinkSync} = require('fs');
 
 describe('javascript', function() {
@@ -47,6 +48,28 @@ describe('javascript', function() {
     assert.equal(typeof output, 'object');
     assert.equal(typeof output.default, 'function');
     assert.equal(output.default(), 3);
+  });
+
+  it('should not autoinstall if PARCEL_AUTOINSTALL is set to false', async function() {
+    const inputDir = path.join(
+      __dirname,
+      '/integration/dont-autoinstall-if-env-var-is-false/'
+    );
+    try {
+      let a = await bundle(path.resolve(inputDir, './index.js'));
+      await run(a);
+    } catch (e) {
+      let pkg = await fs.readFile(
+        path.resolve(inputDir, 'package.json'),
+        'utf8'
+      );
+      const pkgName = 'lodash';
+      pkg = JSON.parse(pkg);
+      assert(pkgName in pkg.dependencies === false);
+      assert(e.message.includes("Cannot resolve dependency 'lodash'"));
+    }
+
+    delete process.env.PARCEL_AUTOINSTALL;
   });
 
   it('should auto install babel-core v6', async function() {
@@ -802,7 +825,7 @@ describe('javascript', function() {
     assert.deepEqual(output(), {
       dir: path.join(__dirname, '/integration/globals'),
       file: path.join(__dirname, '/integration/globals/index.js'),
-      buf: new Buffer('browser').toString('base64'),
+      buf: Buffer.from('browser').toString('base64'),
       global: true
     });
   });
@@ -853,6 +876,45 @@ describe('javascript', function() {
 
     let output = await run(b);
     assert.equal(output, 'bartest');
+  });
+
+  it('should replace process.browser on --target=browser', async function() {
+    let b = await bundle(
+      path.join(__dirname, '/integration/process/index.js'),
+      {
+        target: 'browser'
+      }
+    );
+
+    let output = await run(b);
+    assert.ok(output.toString().indexOf('process.browser') === -1);
+    assert.equal(output(), true);
+  });
+
+  it('should not replace process.browser on --target=node', async function() {
+    let b = await bundle(
+      path.join(__dirname, '/integration/process/index.js'),
+      {
+        target: 'node'
+      }
+    );
+
+    let output = await run(b);
+    assert.ok(output.toString().indexOf('process.browser') !== -1);
+    assert.equal(output(), false);
+  });
+
+  it('should not replace process.browser on --target=electron', async function() {
+    let b = await bundle(
+      path.join(__dirname, '/integration/process/index.js'),
+      {
+        target: 'electron'
+      }
+    );
+
+    let output = await run(b);
+    assert.ok(output.toString().indexOf('process.browser') !== -1);
+    assert.equal(output(), false);
   });
 
   it('should support adding implicit dependencies', async function() {
@@ -1290,21 +1352,28 @@ describe('javascript', function() {
       inputDir
     );
 
-    // Create the symlink here to prevent cross platform and git issues
-    symlinkSync(
-      path.join(inputDir, 'packages/foo'),
-      path.join(inputDir, 'node_modules/foo'),
-      'dir'
-    );
+    try {
+      // Create the symlink here to prevent cross platform and git issues
+      symlinkSync(
+        path.join(inputDir, 'packages/foo'),
+        path.join(inputDir, 'node_modules/foo'),
+        'dir'
+      );
 
-    await bundle(inputDir + '/index.js');
+      await bundle(inputDir + '/index.js');
 
-    let file = await fs.readFile(
-      path.join(__dirname, '/dist/index.js'),
-      'utf8'
-    );
-    assert(file.includes('function Foo'));
-    assert(file.includes('function Bar'));
+      let file = await fs.readFile(
+        path.join(__dirname, '/dist/index.js'),
+        'utf8'
+      );
+      assert(file.includes('function Foo'));
+      assert(file.includes('function Bar'));
+    } catch (e) {
+      if (e.perm == 'EPERM') {
+        symlinkPrivilegeWarning();
+        this.skip();
+      }
+    }
   });
 
   it('should not compile node_modules with a source field in package.json when not symlinked', async function() {
@@ -1343,6 +1412,28 @@ describe('javascript', function() {
     assert(file.includes('React.createElement("div"'));
   });
 
+  it('should support compiling JSX in JS files with React dependency even if React is not specified as dependency', async function() {
+    let originalPkg = await fs.readFile(
+      __dirname + '/integration/jsx-react-no-dep/package.json'
+    );
+
+    await bundle(
+      path.join(__dirname, '/integration/jsx-react-no-dep/index.js')
+    );
+
+    let file = await fs.readFile(
+      path.join(__dirname, '/dist/index.js'),
+      'utf8'
+    );
+
+    assert(file.includes('React.createElement("div"'));
+
+    await fs.writeFile(
+      __dirname + '/integration/jsx-react-no-dep/package.json',
+      originalPkg
+    );
+  });
+
   it('should support compiling JSX in JS files with Preact dependency', async function() {
     await bundle(path.join(__dirname, '/integration/jsx-preact/index.js'));
 
@@ -1351,6 +1442,28 @@ describe('javascript', function() {
       'utf8'
     );
     assert(file.includes('h("div"'));
+  });
+
+  it('should support compiling JSX in JS files with Preact dependency even if Preact is not specified as dependency', async function() {
+    let originalPkg = await fs.readFile(
+      __dirname + '/integration/jsx-preact-no-dep/package.json'
+    );
+
+    await bundle(
+      path.join(__dirname, '/integration/jsx-preact-no-dep/index.js')
+    );
+
+    let file = await fs.readFile(
+      path.join(__dirname, '/dist/index.js'),
+      'utf8'
+    );
+
+    assert(file.includes('h("div"'));
+
+    await fs.writeFile(
+      __dirname + '/integration/jsx-preact-no-dep/package.json',
+      originalPkg
+    );
   });
 
   it('should support compiling JSX in JS files with Nerv dependency', async function() {
@@ -1363,6 +1476,28 @@ describe('javascript', function() {
     assert(file.includes('Nerv.createElement("div"'));
   });
 
+  it('should support compiling JSX in JS files with Nerv dependency even if Nerv is not specified as dependency', async function() {
+    let originalPkg = await fs.readFile(
+      __dirname + '/integration/jsx-nervjs-no-dep/package.json'
+    );
+
+    await bundle(
+      path.join(__dirname, '/integration/jsx-nervjs-no-dep/index.js')
+    );
+
+    let file = await fs.readFile(
+      path.join(__dirname, '/dist/index.js'),
+      'utf8'
+    );
+
+    assert(file.includes('Nerv.createElement("div"'));
+
+    await fs.writeFile(
+      __dirname + '/integration/jsx-nervjs-no-dep/package.json',
+      originalPkg
+    );
+  });
+
   it('should support compiling JSX in JS files with Hyperapp dependency', async function() {
     await bundle(path.join(__dirname, '/integration/jsx-hyperapp/index.js'));
 
@@ -1370,7 +1505,30 @@ describe('javascript', function() {
       path.join(__dirname, '/dist/index.js'),
       'utf8'
     );
+
     assert(file.includes('h("div"'));
+  });
+
+  it('should support compiling JSX in JS files with Hyperapp dependency even if Hyperapp is not specified as dependency', async function() {
+    let originalPkg = await fs.readFile(
+      __dirname + '/integration/jsx-hyperapp-no-dep/package.json'
+    );
+
+    await bundle(
+      path.join(__dirname, '/integration/jsx-hyperapp-no-dep/index.js')
+    );
+
+    let file = await fs.readFile(
+      path.join(__dirname, '/dist/index.js'),
+      'utf8'
+    );
+
+    assert(file.includes('h("div"'));
+
+    await fs.writeFile(
+      __dirname + '/integration/jsx-hyperapp-no-dep/package.json',
+      originalPkg
+    );
   });
 
   it('should support optional dependencies in try...catch blocks', async function() {
